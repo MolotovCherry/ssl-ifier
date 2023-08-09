@@ -1,0 +1,24 @@
+[package]
+name = "ssl-ifier"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.6.19"
+axum-server = { version = "0.5.1", features = ["tls-rustls"] }
+anyhow = "1.0.72"
+serde = { version = "1.0.181", features = ["derive"] }
+toml = "0.7.6"
+reqwest = { version = "0.11.18", features = [
+    "rustls-tls",
+    "stream",
+    "brotli",
+    "gzip",
+], default-features = false }
+rustls = "0.21.6"
+rustls-pemfile = "1.0.3"
+tower = "0.4.13"
+const_format = "0.2.31"
