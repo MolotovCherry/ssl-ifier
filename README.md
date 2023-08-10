@@ -7,7 +7,7 @@ Run the program once to generate a `config.toml` in the exe directory, or fill i
 ```toml
 [addresses]
 backend = "backendhostname:5000"
-proxy = "backendhostname:443"
+proxy = "proxyhostname:443"
 ssl_cert = "my.crt.pem"
 ssl_key = "my.key.pem"
 ```
