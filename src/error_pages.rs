@@ -1,12 +1,28 @@
 use std::fmt::Display;
 
-use const_format::formatcp;
+use axum::http::{header, StatusCode};
+use axum::{
+    body::BoxBody,
+    response::{IntoResponse, Response},
+};
+use const_format::{formatcp, str_replace};
 
-pub fn format_error_page<E: Display>(page: &str, custom_error: E) -> String {
-    page.replace("<!--REPLACE-->", &format!("<p>Error: {custom_error}</p>"))
+pub fn error_page<E: Display>(status_code: StatusCode, e: E) -> Response<BoxBody> {
+    let page = match status_code.as_u16() {
+        400 => E400,
+        502 => E502,
+        _ => unimplemented!(),
+    };
+
+    (
+        status_code,
+        [(header::CONTENT_TYPE, "text/html")],
+        page.replace("<!--REPLACE-->", &format!("<p>Error: {e}</p>")),
+    )
+        .into_response()
 }
 
-pub const E502: &str = formatcp!(
+pub const TEMPLATE: &str = formatcp!(
     r#"
 <!DOCTYPE html>
 <html>
@@ -27,13 +43,25 @@ pub const E502: &str = formatcp!(
 
 <body>
 <div class="error-middle">
-        <h1>Error 502 - Bad Gateway</h1>
-        <p>The 502 (Bad Gateway) status code indicates that the server, while acting as a gateway or proxy, received an invalid response from an inbound server it accessed while attempting to fulfill the request.</p>
+        <h1><!--ERROR HEADER--></h1>
+        <p><!--ERROR DESCRIPTION--></p>
         <!--REPLACE-->
 </div>
 </body>
 </html>
 "#
+);
+
+pub const E400: &str = str_replace!(
+    str_replace!(TEMPLATE, "<!--ERROR HEADER-->", "Error 400 - Bad Request"),
+    "<!--ERROR DESCRIPTION-->",
+    "The 400 (Bad Request) status code indicates that the server cannot or will not process the request due to something that is perceived to be a client error (e.g., malformed request syntax, invalid request message framing, or deceptive request routing)."
+);
+
+pub const E502: &str = str_replace!(
+    str_replace!(TEMPLATE, "<!--ERROR HEADER-->", "Error 502 - Bad Gateway"),
+    "<!--ERROR DESCRIPTION-->",
+    "The 502 (Bad Gateway) status code indicates that the server, while acting as a gateway or proxy, received an invalid response from an inbound server it accessed while attempting to fulfill the request."
 );
 
 pub const ERROR_CSS: &str = r#"

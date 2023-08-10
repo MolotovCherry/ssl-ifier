@@ -23,3 +23,14 @@ pub fn get_addresses(addr: &str) -> anyhow::Result<Addresses> {
 
     Ok(addresses)
 }
+
+pub fn get_port(addr: &str) -> Option<&str> {
+    if let Some(index) = addr.rfind(':') {
+        let port = &addr[index + 1..];
+        // validate it is actually a port number
+        port.parse::<u16>().ok()?;
+        Some(port)
+    } else {
+        None
+    }
+}

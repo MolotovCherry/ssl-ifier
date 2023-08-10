@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub addresses: Addresses,
+    pub options: Options,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -16,10 +17,25 @@ pub struct Addresses {
     // Proxy address to listen on (and port)
     //- eg: 127.0.0.1:443, myaddr.com:443
     pub proxy: String,
+    // Proxy address to listen on (and port) for http
+    // This DOES NOT serve content over http (use your regular service for that if you want that)
+    // The purpose of this is to provide a permanent redirect to the https service
+    //- eg: 127.0.0.1:80, myaddr.com:80
+    pub proxy_http: Option<String>,
     // must be PEM format
     pub ssl_cert: String,
     // must be PEM format
     pub ssl_key: String,
+    // path to the health check on the backend
+    // e.g. /api/health
+    pub health_check: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Options {
+    // If your service has legacy http urls, you can turn on this to allow compatibility
+    // Sets the header: `Content-Security-Policy: upgrade-insecure-requests`
+    pub http_support: bool,
 }
 
 impl Config {
