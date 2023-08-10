@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
 
     // whether to serve http endpoint which redirects to https
     if config.addresses.proxy_http.is_some() {
-        task::spawn(async { redirect_http_to_https().await });
+        task::spawn(redirect_http_to_https());
     }
 
     let check_health = config.addresses.health_check.is_some();
