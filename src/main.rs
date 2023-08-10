@@ -3,10 +3,11 @@ mod error_pages;
 mod resolver;
 
 use std::{
+    convert::Infallible,
     env,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
+        Arc,
     },
     time::Duration,
 };
@@ -18,39 +19,36 @@ use axum::{
     handler::HandlerWithoutStateExt,
     http::{uri, Request, Uri},
     response::{IntoResponse, Redirect, Response},
+    routing::any_service,
+    Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
 use reqwest::{Client, StatusCode};
 use tokio::{task, time::sleep};
-use tower::make::Shared;
+use tower::ServiceBuilder;
+use tower_http::add_extension::AddExtensionLayer;
 
 use crate::config::Config;
 
 use self::error_pages::error_page;
 
-static REQUEST_DATA: OnceLock<RequestData> = OnceLock::new();
-
 #[derive(Debug)]
 struct RequestData {
     client: Client,
-    config: Arc<Config>,
+    config: Config,
     health: AtomicBool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = Arc::new(config::Config::get_config()?);
-
-    REQUEST_DATA
-        .set(RequestData {
-            client: Client::builder().build().unwrap(),
-            config: config.clone(),
-            health: AtomicBool::new(true),
-        })
-        .unwrap();
+    let req_data = Arc::new(RequestData {
+        client: Client::builder().build().unwrap(),
+        config: config::Config::get_config()?,
+        health: AtomicBool::new(true),
+    });
 
     // make backend address
-    let backend_addr = resolver::get_addresses(&config.addresses.proxy)?;
+    let backend_addr = resolver::get_addresses(&req_data.config.addresses.proxy)?;
 
     let backend_addr = backend_addr.ipv4.ok_or(anyhow!("ipv4 address not found"))?;
 
@@ -59,53 +57,58 @@ async fn main() -> anyhow::Result<()> {
     let exe_path = exe_path.parent().ok_or(anyhow!("Failed to get parent"))?;
 
     let ssl_config = RustlsConfig::from_pem_file(
-        exe_path.join(&config.addresses.ssl_cert),
-        exe_path.join(&config.addresses.ssl_key),
+        exe_path.join(&req_data.config.addresses.ssl_cert),
+        exe_path.join(&req_data.config.addresses.ssl_key),
     )
     .await?;
     //
 
-    if config.addresses.proxy_http.is_none() {
+    if req_data.config.addresses.proxy_http.is_none() {
         println!(
             "Listening on {} for service {}",
-            config.addresses.proxy, config.addresses.backend
+            req_data.config.addresses.proxy, req_data.config.addresses.backend
         );
-    } else if let Some(proxy_http) = &config.addresses.proxy_http {
+    } else if let Some(proxy_http) = &req_data.config.addresses.proxy_http {
         println!(
             "Listening on {proxy_http} and {} for service {}",
-            config.addresses.proxy, config.addresses.backend
+            req_data.config.addresses.proxy, req_data.config.addresses.backend
         );
     }
 
     // whether to serve http endpoint which redirects to https
-    if config.addresses.proxy_http.is_some() {
-        task::spawn(redirect_http_to_https());
+    if req_data.config.addresses.proxy_http.is_some() {
+        task::spawn(redirect_http_to_https(req_data.clone()));
     }
 
-    let check_health = config.addresses.health_check.is_some();
+    let check_health = req_data.config.addresses.health_check.is_some();
 
     // run health checks against api to determine availability of service
     if check_health {
-        task::spawn(async {
+        let data = req_data.clone();
+        task::spawn(async move {
             loop {
-                health_check().await;
+                health_check(&data).await;
                 sleep(Duration::from_secs(5)).await;
             }
         });
     }
 
     let service = tower::service_fn(backend_ssl_proxy);
+    let service = ServiceBuilder::new()
+        .layer(AddExtensionLayer::new(req_data.clone()))
+        .service(service);
+    let router = Router::new()
+        .route("/", any_service(service.clone()))
+        .route("/*path", any_service(service));
 
     axum_server::bind_rustls(backend_addr, ssl_config)
-        .serve(Shared::new(service))
+        .serve(router.into_make_service())
         .await?;
 
     Ok(())
 }
 
-async fn redirect_http_to_https() -> anyhow::Result<()> {
-    let data = REQUEST_DATA.get().unwrap();
-
+async fn redirect_http_to_https(data: Arc<RequestData>) -> anyhow::Result<()> {
     let http_port = resolver::get_port(data.config.addresses.proxy_http.as_ref().unwrap())
         .unwrap_or("80")
         .to_string();
@@ -145,9 +148,7 @@ async fn redirect_http_to_https() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn health_check() {
-    let data = REQUEST_DATA.get().unwrap();
-
+async fn health_check(data: &RequestData) {
     let url = format!(
         "http://{}{}",
         data.config.addresses.backend,
@@ -160,8 +161,8 @@ async fn health_check() {
     }
 }
 
-async fn backend_ssl_proxy(req: Request<Body>) -> anyhow::Result<Response<BoxBody>> {
-    let data = REQUEST_DATA.get().unwrap();
+async fn backend_ssl_proxy(req: Request<Body>) -> Result<Response<BoxBody>, Infallible> {
+    let data = req.extensions().get::<Arc<RequestData>>().unwrap().clone();
 
     let health = data.health.load(Ordering::Relaxed);
     if !health {
