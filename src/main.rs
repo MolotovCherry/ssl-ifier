@@ -1,6 +1,7 @@
 mod config;
 mod error_pages;
 mod resolver;
+mod websocket;
 
 use std::{
     convert::Infallible,
@@ -19,31 +20,39 @@ use axum::{
     handler::HandlerWithoutStateExt,
     http::{uri, Request, Uri},
     response::{IntoResponse, Redirect, Response},
-    routing::any_service,
-    Router,
+    routing::{any_service, get},
+    Extension, Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
 use reqwest::{Client, StatusCode};
 use tokio::{task, time::sleep};
 use tower::ServiceBuilder;
 use tower_http::add_extension::AddExtensionLayer;
+use url::Url;
 
 use crate::config::Config;
 
 use self::error_pages::error_page;
 
 #[derive(Debug)]
-struct RequestData {
+pub struct StateData {
     client: Client,
     config: Config,
     health: AtomicBool,
+    websocket_destination: Option<Url>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let req_data = Arc::new(RequestData {
+    let config = config::Config::get_config()?;
+    let req_data = Arc::new(StateData {
         client: Client::builder().build().unwrap(),
-        config: config::Config::get_config()?,
+        websocket_destination: if let Some(path) = &config.addresses.websocket_path {
+            Some(Url::parse(&format!("ws://{}{path}", config.addresses.backend)).unwrap())
+        } else {
+            None
+        },
+        config,
         health: AtomicBool::new(true),
     });
 
@@ -93,13 +102,34 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let service = tower::service_fn(backend_ssl_proxy);
     let service = ServiceBuilder::new()
         .layer(AddExtensionLayer::new(req_data.clone()))
-        .service(service);
-    let router = Router::new()
-        .route("/", any_service(service.clone()))
-        .route("/*path", any_service(service));
+        .service(tower::service_fn(backend_ssl_proxy));
+    let mut router = Router::new();
+
+    if let Some(path) = &req_data.config.addresses.websocket_path {
+        println!(
+            "Listening for websocket connections on wss://{}{path}",
+            req_data.config.addresses.proxy
+        );
+        router = router.route(path, get(websocket::handler));
+    }
+
+    // you cannot have two routes with the same path or panic, so we will let websocket override it
+    if !req_data
+        .config
+        .addresses
+        .websocket_path
+        .as_ref()
+        .is_some_and(|p| p == "/")
+    {
+        router = router.route("/", any_service(service.clone()));
+    }
+
+    // everything else goes to the service
+    router = router
+        .route("/*path", any_service(service))
+        .layer(Extension(req_data.clone()));
 
     axum_server::bind_rustls(backend_addr, ssl_config)
         .serve(router.into_make_service())
@@ -108,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn redirect_http_to_https(data: Arc<RequestData>) -> anyhow::Result<()> {
+async fn redirect_http_to_https(data: Arc<StateData>) -> anyhow::Result<()> {
     let http_port = resolver::get_port(data.config.addresses.proxy_http.as_ref().unwrap())
         .unwrap_or("80")
         .to_string();
@@ -148,7 +178,7 @@ async fn redirect_http_to_https(data: Arc<RequestData>) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn health_check(data: &RequestData) {
+async fn health_check(data: &StateData) {
     let url = format!(
         "http://{}{}",
         data.config.addresses.backend,
@@ -162,7 +192,7 @@ async fn health_check(data: &RequestData) {
 }
 
 async fn backend_ssl_proxy(req: Request<Body>) -> Result<Response<BoxBody>, Infallible> {
-    let data = req.extensions().get::<Arc<RequestData>>().unwrap().clone();
+    let data = req.extensions().get::<Arc<StateData>>().unwrap().clone();
 
     let health = data.health.load(Ordering::Relaxed);
     if !health {

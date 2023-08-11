@@ -6,9 +6,21 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# futures stuff
 tokio = { version = "1", features = ["full"] }
-axum = "0.6.19"
+futures = "0.3.21"
+# server
+axum = { version = "0.6.19", features = ["ws"] }
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
+tower = "0.4.13"
+tower-http = { version = "0.4.3", features = ["add-extension"] }
+# tls
+rustls = "0.21.6"
+rustls-pemfile = "1.0.3"
+# websockets
+tungstenite = "0.20.0"
+tokio-tungstenite = { version = "0.20.0", features = ["native-tls"] }
+# misc
 anyhow = "1.0.72"
 serde = { version = "1.0.181", features = ["derive"] }
 toml = "0.7.6"
@@ -18,8 +30,5 @@ reqwest = { version = "0.11.18", features = [
     "brotli",
     "gzip",
 ], default-features = false }
-rustls = "0.21.6"
-rustls-pemfile = "1.0.3"
-tower = "0.4.13"
-tower-http = { version = "0.4.3", features = ["add-extension"] }
 const_format = { version = "0.2.31", features = ["rust_1_51"] }
+url = "2.4.0"

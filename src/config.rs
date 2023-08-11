@@ -22,6 +22,9 @@ pub struct Addresses {
     // The purpose of this is to provide a permanent redirect to the https service
     //- eg: 127.0.0.1:80, myaddr.com:80
     pub proxy_http: Option<String>,
+    // Whether to enable websocket proxying to backend, and if so, what path to use
+    //- eg: /ws
+    pub websocket_path: Option<String>,
     // must be PEM format
     pub ssl_cert: String,
     // must be PEM format
