@@ -7,10 +7,10 @@ use futures::{
     stream::{SplitSink, SplitStream, StreamExt},
 };
 use serde::Deserialize;
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tungstenite::protocol::Message;
+use tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryString {
@@ -38,6 +38,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
             dest_socket
         } else {
             // failed to connect to destination, so the client connection isn't needed
+            let _ = client_sender
+                .send(Message::Close(Some(CloseFrame {
+                    // Bad Gateway
+                    code: CloseCode::from(1014),
+                    reason: Cow::Borrowed("Failed to open connection to destination server"),
+                })))
+                .await;
+
             let _ = client_sender.close().await;
             return;
         }
