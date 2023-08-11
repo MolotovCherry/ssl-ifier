@@ -20,6 +20,7 @@ rustls-pemfile = "1.0.3"
 # websockets
 tungstenite = "0.20.0"
 tokio-tungstenite = { version = "0.20.0", features = ["native-tls"] }
+axum-tungstenite = "0.3.0"
 # misc
 anyhow = "1.0.72"
 serde = { version = "1.0.181", features = ["derive"] }

@@ -1,13 +1,7 @@
 use crate::StateData;
 
-use axum::{
-    extract::{
-        ws::{CloseFrame as ACloseFrame, Message as AMessage, WebSocket, WebSocketUpgrade},
-        Query,
-    },
-    response::IntoResponse,
-    Extension,
-};
+use axum::{extract::Query, response::IntoResponse, Extension};
+use axum_tungstenite::{WebSocket, WebSocketUpgrade};
 use futures::{
     sink::SinkExt,
     stream::{SplitSink, SplitStream, StreamExt},
@@ -16,9 +10,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tungstenite::protocol::{
-    frame::coding::CloseCode, CloseFrame as TCloseFrame, Message as TMessage,
-};
+use tungstenite::protocol::Message;
 
 #[derive(Debug, Deserialize)]
 pub struct QueryString {
@@ -59,27 +51,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
 
 async fn handle_from_client(
     mut client_receiver: SplitStream<WebSocket>,
-    mut dest_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, TMessage>,
+    mut dest_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 ) {
     while let Some(Ok(msg)) = client_receiver.next().await {
-        let message = match msg {
-            AMessage::Text(text) => TMessage::Text(text),
-
-            AMessage::Binary(binary) => TMessage::Binary(binary),
-
-            AMessage::Ping(ping) => TMessage::Ping(ping),
-
-            AMessage::Pong(pong) => TMessage::Pong(pong),
-
-            AMessage::Close(Some(close)) => TMessage::Close(Some(TCloseFrame {
-                code: CloseCode::from(close.code),
-                reason: close.reason,
-            })),
-
-            AMessage::Close(None) => TMessage::Close(None),
-        };
-
-        if dest_sender.send(message).await.is_err() {
+        if dest_sender.send(msg).await.is_err() {
             let _ = dest_sender.close().await;
             return;
         }
@@ -87,32 +62,11 @@ async fn handle_from_client(
 }
 
 async fn handle_from_dest(
-    mut client_sender: SplitSink<WebSocket, AMessage>,
+    mut client_sender: SplitSink<WebSocket, Message>,
     mut dest_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 ) {
     while let Some(Ok(msg)) = dest_receiver.next().await {
-        let message = match msg {
-            TMessage::Text(text) => AMessage::Text(text),
-
-            TMessage::Binary(binary) => AMessage::Binary(binary),
-
-            TMessage::Ping(ping) => AMessage::Ping(ping),
-
-            TMessage::Pong(pong) => AMessage::Pong(pong),
-
-            TMessage::Close(Some(close)) => AMessage::Close(Some(ACloseFrame {
-                code: close.code.into(),
-                reason: close.reason,
-            })),
-
-            TMessage::Close(None) => AMessage::Close(None),
-
-            // we can ignore `Frame` frames as recommended by the tungstenite maintainers
-            // https://github.com/snapview/tungstenite-rs/issues/268
-            TMessage::Frame(_) => continue,
-        };
-
-        if client_sender.send(message).await.is_err() {
+        if client_sender.send(msg).await.is_err() {
             let _ = client_sender.close().await;
             return;
         }

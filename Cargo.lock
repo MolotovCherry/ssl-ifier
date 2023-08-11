@@ -148,6 +148,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-tungstenite"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1861a918e0de7292898321bb6a875d849fa71e4ad031cbae192b2e05f28d008f"
+dependencies = [
+ "async-trait",
+ "axum-core",
+ "base64",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "hyper",
+ "sha-1",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1206,6 +1225,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha-1"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5058ada175748e33390e40e872bd0fe59a19f265d0158daa551c5a88a76009c"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1273,6 +1303,7 @@ dependencies = [
  "anyhow",
  "axum",
  "axum-server",
+ "axum-tungstenite",
  "const_format",
  "futures",
  "reqwest",
