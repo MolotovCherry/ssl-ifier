@@ -37,19 +37,12 @@ pub async fn handler(
 async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryString) {
     let (mut client_sender, client_receiver) = socket.split();
 
-    let mut base = state.websocket_destination.as_ref().unwrap().to_owned();
-    let server_url = {
-        let mut query_builder = base.query_pairs_mut();
-
-        for (key, value) in query.items {
-            query_builder.append_pair(&key, &value);
-        }
-
-        query_builder.finish().to_string()
-    };
+    let mut url = state.websocket_destination.as_ref().unwrap().to_owned();
+    // originally this would fail past an await point, but the temporary borrow drops for us and solves that.. Nice!
+    url.query_pairs_mut().extend_pairs(query.items).finish();
 
     let dest_socket = {
-        if let Ok((dest_socket, _)) = connect_async(server_url).await {
+        if let Ok((dest_socket, _)) = connect_async(url.as_str()).await {
             dest_socket
         } else {
             // failed to connect to destination, so the client connection isn't needed
