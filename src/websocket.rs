@@ -8,7 +8,7 @@ use futures::{
 };
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tungstenite::protocol::Message;
 
@@ -43,10 +43,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
         }
     };
 
-    let (dest_sender, dest_reader) = dest_socket.split();
+    let (dest_sender, dest_receiver) = dest_socket.split();
 
-    tokio::spawn(handle_from_dest(client_sender, dest_reader));
-    tokio::spawn(handle_from_client(client_receiver, dest_sender));
+    let client_fut = async { handle_from_client(client_receiver, dest_sender).await };
+    let dest_fut = async { handle_from_dest(client_sender, dest_receiver).await };
+
+    // whichever future completes first, abort the other one since they're a pair
+    select! {
+        _ = client_fut => (),
+        _ = dest_fut => ()
+    }
 }
 
 async fn handle_from_client(
