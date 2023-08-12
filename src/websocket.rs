@@ -69,8 +69,7 @@ async fn handle_from_client(
 ) {
     while let Some(Ok(msg)) = client_receiver.next().await {
         if dest_sender.send(msg).await.is_err() {
-            let _ = dest_sender.close().await;
-            return;
+            break;
         }
     }
 }
@@ -81,8 +80,7 @@ async fn handle_from_dest(
 ) {
     while let Some(Ok(msg)) = dest_receiver.next().await {
         if client_sender.send(msg).await.is_err() {
-            let _ = client_sender.close().await;
-            return;
+            break;
         }
     }
 }
