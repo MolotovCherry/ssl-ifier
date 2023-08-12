@@ -74,12 +74,12 @@ async fn main() -> anyhow::Result<()> {
 
     if req_data.config.addresses.proxy_http.is_none() {
         println!(
-            "Listening on {} for service {}",
+            "Listening on https://{} for service http://{}",
             req_data.config.addresses.proxy, req_data.config.addresses.backend
         );
     } else if let Some(proxy_http) = &req_data.config.addresses.proxy_http {
         println!(
-            "Listening on {proxy_http} and {} for service {}",
+            "Listening on http://{proxy_http} and https://{} for service http://{}",
             req_data.config.addresses.proxy, req_data.config.addresses.backend
         );
     }
