@@ -1,7 +1,13 @@
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use axum::{extract::Query, response::IntoResponse, Extension};
-use axum_tungstenite::{WebSocket, WebSocketUpgrade};
+use axum::{
+    extract::{
+        ws::{CloseFrame, Message as AMessage, WebSocket},
+        Query, WebSocketUpgrade,
+    },
+    response::IntoResponse,
+    Extension,
+};
 use futures::{
     sink::SinkExt,
     stream::{SplitSink, SplitStream, StreamExt},
@@ -9,7 +15,7 @@ use futures::{
 use serde::Deserialize;
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message};
+use tungstenite::Message as TMessage;
 
 use crate::StateData;
 
@@ -40,9 +46,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
         } else {
             // failed to connect to destination, so the client connection isn't needed
             let _ = client_sender
-                .send(Message::Close(Some(CloseFrame {
+                .send(AMessage::Close(Some(CloseFrame {
                     // Bad Gateway
-                    code: CloseCode::from(1014),
+                    code: 1014,
                     reason: Cow::Borrowed("Failed to open connection to destination server"),
                 })))
                 .await;
@@ -66,9 +72,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
 
 async fn handle_from_client(
     mut client_receiver: SplitStream<WebSocket>,
-    mut dest_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    mut dest_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, TMessage>,
 ) {
     while let Some(Ok(msg)) = client_receiver.next().await {
+        let msg = into_tmessage(msg);
+
         if dest_sender.send(msg).await.is_err() {
             break;
         }
@@ -76,12 +84,66 @@ async fn handle_from_client(
 }
 
 async fn handle_from_dest(
-    mut client_sender: SplitSink<WebSocket, Message>,
+    mut client_sender: SplitSink<WebSocket, AMessage>,
     mut dest_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 ) {
     while let Some(Ok(msg)) = dest_receiver.next().await {
+        let Some(msg) = into_amessage(msg) else {
+            continue;
+        };
+
         if client_sender.send(msg).await.is_err() {
             break;
         }
     }
+}
+
+fn into_tmessage(msg: AMessage) -> TMessage {
+    use tungstenite::protocol::{frame::coding::CloseCode, CloseFrame};
+
+    match msg {
+        AMessage::Text(t) => TMessage::Text(t),
+        AMessage::Binary(b) => TMessage::Binary(b),
+        AMessage::Ping(p) => TMessage::Ping(p),
+        AMessage::Pong(p) => TMessage::Pong(p),
+        AMessage::Close(c) => match c {
+            Some(frame) => {
+                let frame = CloseFrame {
+                    code: CloseCode::from(frame.code),
+                    reason: frame.reason,
+                };
+
+                TMessage::Close(Some(frame))
+            }
+
+            None => TMessage::Close(None),
+        },
+    }
+}
+
+fn into_amessage(msg: TMessage) -> Option<AMessage> {
+    use axum::extract::ws::CloseCode;
+
+    let msg = match msg {
+        TMessage::Text(t) => AMessage::Text(t),
+        TMessage::Binary(b) => AMessage::Binary(b),
+        TMessage::Ping(p) => AMessage::Ping(p),
+        TMessage::Pong(p) => AMessage::Pong(p),
+        TMessage::Close(c) => match c {
+            Some(frame) => {
+                let frame = CloseFrame {
+                    code: CloseCode::from(frame.code),
+                    reason: frame.reason,
+                };
+
+                AMessage::Close(Some(frame))
+            }
+
+            None => AMessage::Close(None),
+        },
+
+        TMessage::Frame(_) => return None,
+    };
+
+    Some(msg)
 }
