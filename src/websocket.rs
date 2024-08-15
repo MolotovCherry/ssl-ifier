@@ -1,4 +1,4 @@
-use crate::StateData;
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use axum::{extract::Query, response::IntoResponse, Extension};
 use axum_tungstenite::{WebSocket, WebSocketUpgrade};
@@ -7,10 +7,11 @@ use futures::{
     stream::{SplitSink, SplitStream, StreamExt},
 };
 use serde::Deserialize;
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message};
+
+use crate::StateData;
 
 #[derive(Debug, Deserialize)]
 pub struct QueryString {

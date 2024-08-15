@@ -15,7 +15,7 @@ use std::{
 
 use anyhow::anyhow;
 use axum::{
-    body::{Body, BoxBody, HttpBody},
+    body::Body,
     extract::Host,
     handler::HandlerWithoutStateExt,
     http::{uri, Request, Uri},
@@ -24,7 +24,7 @@ use axum::{
     Extension, Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
-use reqwest::{Client, StatusCode};
+use reqwest::{Body as ReqwestBody, Client, StatusCode};
 use tokio::{task, time::sleep};
 use tower::ServiceBuilder;
 use tower_http::add_extension::AddExtensionLayer;
@@ -186,15 +186,15 @@ async fn health_check(data: &StateData) {
     );
 
     match data.client.get(url).send().await {
-        Ok(_) => data.health.store(true, Ordering::Relaxed),
-        Err(_) => data.health.store(false, Ordering::Relaxed),
+        Ok(_) => data.health.store(true, Ordering::Release),
+        Err(_) => data.health.store(false, Ordering::Release),
     }
 }
 
-async fn backend_ssl_proxy(req: Request<Body>) -> Result<Response<BoxBody>, Infallible> {
+async fn backend_ssl_proxy(req: Request<Body>) -> Result<Response<Body>, Infallible> {
     let data = req.extensions().get::<Arc<StateData>>().unwrap().clone();
 
-    let health = data.health.load(Ordering::Relaxed);
+    let health = data.health.load(Ordering::Acquire);
     if !health {
         return Ok(error_page(
             StatusCode::BAD_GATEWAY,
@@ -217,11 +217,14 @@ async fn backend_ssl_proxy(req: Request<Body>) -> Result<Response<BoxBody>, Infa
 
     let url = format!("http://{}{path}", data.config.addresses.backend);
 
+    let stream = body.into_data_stream();
+    let req_body = ReqwestBody::wrap_stream(stream);
+
     let reqwest = match data
         .client
         .request(method, url)
         .headers(headers)
-        .body(body)
+        .body(req_body)
         .send()
         .await
     {
@@ -233,7 +236,9 @@ async fn backend_ssl_proxy(req: Request<Body>) -> Result<Response<BoxBody>, Infa
 
     let mut response = Response::builder();
 
-    *response.headers_mut().unwrap() = reqwest.headers().clone();
+    if let Some(map) = response.headers_mut() {
+        *map = reqwest.headers().clone();
+    }
 
     if data.config.options.http_support {
         response = response.header("Content-Security-Policy", "upgrade-insecure-requests");
@@ -241,9 +246,11 @@ async fn backend_ssl_proxy(req: Request<Body>) -> Result<Response<BoxBody>, Infa
 
     let response = response
         .status(reqwest.status())
-        .body(Body::wrap_stream(reqwest.bytes_stream()))
-        .unwrap()
-        .map(|b| BoxBody::new(b.map_err(axum::Error::new)));
+        .body(Body::from_stream(reqwest.bytes_stream()))
+        .unwrap_or(error_page(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to get reqwest byte stream",
+        ));
 
     Ok(response)
 }

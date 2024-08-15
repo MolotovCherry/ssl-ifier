@@ -2,20 +2,21 @@ use std::fmt::Display;
 
 use axum::http::{header, StatusCode};
 use axum::{
-    body::BoxBody,
+    body::Body,
     response::{IntoResponse, Response},
 };
 use const_format::{formatcp, str_replace};
 
-pub fn error_page<E: Display>(status_code: StatusCode, e: E) -> Response<BoxBody> {
-    let page = match status_code.as_u16() {
-        400 => E400,
-        502 => E502,
-        _ => unimplemented!(),
+pub fn error_page<E: Display>(status_code: StatusCode, e: E) -> Response<Body> {
+    let (code, page) = match status_code.as_u16() {
+        400 => (status_code, E400),
+        500 => (status_code, E500),
+        502 => (status_code, E502),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, E500),
     };
 
     (
-        status_code,
+        code,
         [(header::CONTENT_TYPE, "text/html")],
         page.replace("<!--REPLACE-->", &format!("<p>Error: {e}</p>")),
     )
@@ -56,6 +57,12 @@ pub const E400: &str = str_replace!(
     str_replace!(TEMPLATE, "<!--ERROR HEADER-->", "Error 400 - Bad Request"),
     "<!--ERROR DESCRIPTION-->",
     "The 400 (Bad Request) status code indicates that the server cannot or will not process the request due to something that is perceived to be a client error (e.g., malformed request syntax, invalid request message framing, or deceptive request routing)."
+);
+
+pub const E500: &str = str_replace!(
+    str_replace!(TEMPLATE, "<!--ERROR HEADER-->", "Error 5400 - Internal Server Error"),
+    "<!--ERROR DESCRIPTION-->",
+    "The 500(Internal Server Error) status code indicates that the server encountered an error and could not complete the request."
 );
 
 pub const E502: &str = str_replace!(
