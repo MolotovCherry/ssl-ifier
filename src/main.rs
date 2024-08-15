@@ -44,6 +44,10 @@ pub struct StateData {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("failed to install crypto handler"))?;
+
     let config = config::Config::get_config()?;
     let req_data = Arc::new(StateData {
         client: Client::builder().build().unwrap(),
