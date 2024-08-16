@@ -15,6 +15,7 @@ use futures::{
 use serde::Deserialize;
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tracing::info;
 use tungstenite::Message as TMessage;
 
 use crate::StateData;
@@ -79,6 +80,8 @@ async fn handle_from_client(
     while let Some(Ok(msg)) = client_receiver.next().await {
         let msg = into_tmessage(msg);
 
+        info!(ty = msg_ty(&msg), %msg, "client->server");
+
         if dest_sender.send(msg).await.is_err() {
             break;
         }
@@ -90,6 +93,8 @@ async fn handle_from_server(
     mut dest_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 ) {
     while let Some(Ok(msg)) = dest_receiver.next().await {
+        info!(ty = msg_ty(&msg), %msg, "server->client");
+
         let Some(msg) = into_amessage(msg) else {
             continue;
         };
@@ -148,4 +153,15 @@ fn into_amessage(msg: TMessage) -> Option<AMessage> {
     };
 
     Some(msg)
+}
+
+fn msg_ty(msg: &TMessage) -> &'static str {
+    match msg {
+        TMessage::Text(_) => "text",
+        TMessage::Binary(_) => "binary",
+        TMessage::Ping(_) => "ping",
+        TMessage::Pong(_) => "pong",
+        TMessage::Close(_) => "close",
+        TMessage::Frame(_) => "frame",
+    }
 }
