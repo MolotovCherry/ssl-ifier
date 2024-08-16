@@ -4,6 +4,7 @@ use std::{
 };
 
 use tokio::{task, time::sleep};
+use tracing::{error, info};
 
 use crate::StateData;
 
@@ -17,8 +18,21 @@ pub fn health_check(data: Arc<StateData>) {
 
         loop {
             match data.client.get(&url).send().await {
-                Ok(_) => data.health.store(true, Ordering::Release),
-                Err(_) => data.health.store(false, Ordering::Release),
+                Ok(_) => {
+                    let status = data.health.swap(true, Ordering::Release);
+
+                    if !status {
+                        info!("health check success");
+                    }
+                }
+
+                Err(_) => {
+                    let status = data.health.swap(false, Ordering::Release);
+
+                    if status {
+                        error!("health check failed");
+                    }
+                }
             }
 
             sleep(Duration::from_secs(5)).await;

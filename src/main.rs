@@ -63,7 +63,7 @@ fn setup() -> Result<()> {
         .map_err(|_| AppError::CryptoInstallFailure)?;
 
     tracing_subscriber::registry()
-        .with(fmt::layer())
+        .with(fmt::layer().without_time())
         .with(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::INFO.into())
