@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
     Extension,
 };
+use derive_more::derive::Display;
 use futures::{
     sink::SinkExt,
     stream::{SplitSink, SplitStream, StreamExt},
@@ -18,7 +19,7 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::{error, info};
 use tungstenite::Message as TMessage;
 
-use crate::StateData;
+use crate::{utils::format_query, StateData};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryString {
@@ -45,7 +46,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
     // originally this would fail past an await point, but the temporary borrow drops for us and solves that.. Nice!
     url.query_pairs_mut().extend_pairs(query.items).finish();
 
-    info!(%url, "connecting to");
+    let path = url.path();
+    let query = format_query(url.query().unwrap_or(""));
+
+    info!(url = %format!("{path}{query}"), "connecting to ws");
 
     let dest_socket = {
         let Ok((dest, _)) = connect_async(url.as_str()).await else {
@@ -88,7 +92,7 @@ async fn handle_from_client(
     while let Some(Ok(msg)) = client_receiver.next().await {
         let msg = into_tmessage(msg);
 
-        info!(ty = msg_ty(&msg), %msg, "client->server");
+        info!(ty = %msg_ty(&msg), %msg, "client->server");
 
         if dest_sender.send(msg).await.is_err() {
             break;
@@ -101,7 +105,7 @@ async fn handle_from_server(
     mut dest_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 ) {
     while let Some(Ok(msg)) = dest_receiver.next().await {
-        info!(ty = msg_ty(&msg), %msg, "server->client");
+        info!(ty = %msg_ty(&msg), %msg, "server->client");
 
         let Some(msg) = into_amessage(msg) else {
             continue;
@@ -163,13 +167,29 @@ fn into_amessage(msg: TMessage) -> Option<AMessage> {
     Some(msg)
 }
 
-fn msg_ty(msg: &TMessage) -> &'static str {
-    match msg {
-        TMessage::Text(_) => "text",
-        TMessage::Binary(_) => "binary",
-        TMessage::Ping(_) => "ping",
-        TMessage::Pong(_) => "pong",
-        TMessage::Close(_) => "close",
-        TMessage::Frame(_) => "frame",
+fn msg_ty(msg: &TMessage) -> PrintableMessage {
+    msg.into()
+}
+
+#[derive(Debug, Display)]
+enum PrintableMessage {
+    Text,
+    Binary,
+    Ping,
+    Pong,
+    Close,
+    Frame,
+}
+
+impl From<&TMessage> for PrintableMessage {
+    fn from(value: &TMessage) -> Self {
+        match value {
+            TMessage::Text(_) => Self::Text,
+            TMessage::Binary(_) => Self::Binary,
+            TMessage::Ping(_) => Self::Ping,
+            TMessage::Pong(_) => Self::Pong,
+            TMessage::Close(_) => Self::Close,
+            TMessage::Frame(_) => Self::Frame,
+        }
     }
 }

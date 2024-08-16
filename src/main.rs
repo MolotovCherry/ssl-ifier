@@ -4,6 +4,7 @@ mod health;
 mod proxy;
 mod redirect;
 mod resolver;
+mod utils;
 mod websocket;
 
 use std::{

@@ -10,9 +10,10 @@ use axum::{
     response::{IntoResponse as _, Redirect},
 };
 use color_eyre::Result;
-use reqwest::StatusCode;
+use reqwest::{Method, StatusCode};
+use tracing::info;
 
-use crate::{error_pages::error_page, resolver, StateData};
+use crate::{error_pages::error_page, resolver, utils::format_req, StateData};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RedirectError {
@@ -53,7 +54,9 @@ pub async fn redirect_http(data: Arc<StateData>) -> Result<()> {
         Ok(Uri::from_parts(parts)?)
     };
 
-    let redirect = move |Host(host): Host, uri: Uri| async move {
+    let redirect = move |method: Method, Host(host): Host, uri: Uri| async move {
+        info!("{}", format_req(&method, &uri));
+
         match make_https(host, uri) {
             Ok(uri) => Redirect::permanent(&uri.to_string()).into_response(),
             Err(error) => error_page(StatusCode::BAD_REQUEST, error).into_response(),

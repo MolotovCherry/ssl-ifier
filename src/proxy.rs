@@ -5,10 +5,13 @@ use std::{
 
 use axum::{body::Body, extract::Request, response::Response};
 use reqwest::{Body as ReqwestBody, StatusCode};
+use tracing::info;
 
-use crate::{error_pages::error_page, StateData};
+use crate::{error_pages::error_page, utils::format_req, StateData};
 
 pub async fn proxy(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    info!("{}", format_req(req.method(), req.uri()));
+
     let data = req.extensions().get::<Arc<StateData>>().unwrap().clone();
 
     let health = data.health.load(Ordering::Acquire);
