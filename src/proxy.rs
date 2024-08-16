@@ -10,8 +10,6 @@ use tracing::info;
 use crate::{error_pages::error_page, utils::format_req, StateData};
 
 pub async fn proxy(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    info!("{}", format_req(req.method(), req.uri()));
-
     let data = req.extensions().get::<Arc<StateData>>().unwrap().clone();
 
     let health = data.health.load(Ordering::Acquire);
@@ -44,7 +42,7 @@ pub async fn proxy(req: Request<Body>) -> Result<Response<Body>, Infallible> {
 
     let reqwest = match data
         .client
-        .request(method, url)
+        .request(method.clone(), url)
         .headers(headers)
         .body(req_body)
         .send()
@@ -55,6 +53,8 @@ pub async fn proxy(req: Request<Body>) -> Result<Response<Body>, Infallible> {
             return Ok(error_page(StatusCode::BAD_GATEWAY, e));
         }
     };
+
+    info!("{} {}", format_req(&method, &parts.uri), reqwest.status());
 
     let mut response = Response::builder();
 

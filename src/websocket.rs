@@ -13,6 +13,7 @@ use futures::{
     sink::SinkExt,
     stream::{SplitSink, SplitStream, StreamExt},
 };
+use owo_colors::OwoColorize;
 use serde::Deserialize;
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
@@ -49,7 +50,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
     let path = url.path();
     let query = format_query(url.query().unwrap_or(""));
 
-    info!(url = %format!("{path}{query}"), "connecting to ws");
+    let path = format!("{path}{query}");
+    let path = path.cyan();
+
+    info!(url = %path, "connecting to ws");
 
     let dest_socket = {
         let Ok((dest, _)) = connect_async(url.as_str()).await else {

@@ -9,7 +9,7 @@ use axum::{
     },
     response::{IntoResponse as _, Redirect},
 };
-use color_eyre::Result;
+use color_eyre::{owo_colors::OwoColorize, Result};
 use reqwest::{Method, StatusCode};
 use tracing::info;
 
@@ -55,11 +55,19 @@ pub async fn redirect_http(data: Arc<StateData>) -> Result<()> {
     };
 
     let redirect = move |method: Method, Host(host): Host, uri: Uri| async move {
-        info!("{}", format_req(&method, &uri));
+        let path = format_req(&method, &uri);
+        let path = path.cyan();
 
         match make_https(host, uri) {
-            Ok(uri) => Redirect::permanent(&uri.to_string()).into_response(),
-            Err(error) => error_page(StatusCode::BAD_REQUEST, error).into_response(),
+            Ok(uri) => {
+                info!("{path} 308 Permanent Redirect");
+                Redirect::permanent(&uri.to_string()).into_response()
+            }
+
+            Err(error) => {
+                info!("{path} 400 Bad Request");
+                error_page(StatusCode::BAD_REQUEST, error).into_response()
+            }
         }
     };
 

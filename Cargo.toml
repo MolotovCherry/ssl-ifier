@@ -26,6 +26,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 derive_more = { version = "1.0.0", features = ["display"] }
 serde = { version = "1.0.208", features = ["derive"] }
 toml = "0.8.19"
+owo-colors = "4.0.0"
 # todo: 0.12.5 wrap_stream requires Sync, but it's removed on master
 reqwest = { git = "https://github.com/seanmonstar/reqwest", rev = "b9d62a0", features = [
     "rustls-tls",

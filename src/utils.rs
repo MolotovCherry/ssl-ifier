@@ -1,13 +1,18 @@
 use std::borrow::Cow;
 
 use axum::http::{Method, Uri};
+use owo_colors::OwoColorize;
 use url::form_urlencoded;
 
 pub fn format_req(method: &Method, uri: &Uri) -> String {
     let path = uri.path();
     let query = format_query(uri.query().unwrap_or(""));
 
-    format!("{method} {path}{query}")
+    let method = method.green();
+    let path = format!("{path}{query}");
+    let path = path.cyan();
+
+    format!("{method} {path}")
 }
 
 pub fn format_query(uri: &str) -> String {
