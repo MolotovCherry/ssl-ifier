@@ -9,7 +9,6 @@ mod websocket;
 use std::{
     env,
     sync::{atomic::AtomicBool, Arc},
-    time::Duration,
 };
 
 use axum::{
@@ -20,7 +19,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use color_eyre::{eyre::bail, Result};
 use reqwest::Client;
 use thiserror::Error;
-use tokio::{task, time::sleep};
+use tokio::task;
 use tower::ServiceBuilder;
 use tower_http::add_extension::AddExtensionLayer;
 use tracing::{error, info, level_filters::LevelFilter};
@@ -133,20 +132,7 @@ async fn main() -> Result<()> {
 
     // run health checks against api to determine availability of service
     if data.config.addresses.health_check.is_some() {
-        let data = data.clone();
-
-        task::spawn(async move {
-            loop {
-                health_check(
-                    &data,
-                    &data.config.addresses.backend,
-                    data.config.addresses.health_check.as_ref().unwrap(),
-                )
-                .await;
-
-                sleep(Duration::from_secs(5)).await;
-            }
-        });
+        health_check(data.clone());
     }
 
     let service = ServiceBuilder::new()
@@ -159,6 +145,7 @@ async fn main() -> Result<()> {
             "Listening for websocket connections on wss://{}{path}",
             data.config.addresses.proxy
         );
+
         router = router.route(path, get(websocket::handler));
     }
 
