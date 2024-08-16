@@ -41,27 +41,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
     url.query_pairs_mut().extend_pairs(query.items).finish();
 
     let dest_socket = {
-        if let Ok((dest_socket, _)) = connect_async(url.as_str()).await {
-            dest_socket
-        } else {
+        let Ok((dest, _)) = connect_async(url.as_str()).await else {
             // failed to connect to destination, so the client connection isn't needed
-            let _ = client_sender
-                .send(AMessage::Close(Some(CloseFrame {
-                    // Bad Gateway
-                    code: 1014,
-                    reason: Cow::Borrowed("Failed to open connection to destination server"),
-                })))
-                .await;
 
-            let _ = client_sender.close().await;
+            let frame = CloseFrame {
+                // Bad Gateway
+                code: 1014,
+                reason: Cow::Borrowed("Failed to open connection to destination server"),
+            };
+
+            _ = client_sender.send(AMessage::Close(Some(frame))).await;
+
+            _ = client_sender.close().await;
+
             return;
-        }
+        };
+
+        dest
     };
 
     let (dest_sender, dest_receiver) = dest_socket.split();
 
     let client_fut = handle_from_client(client_receiver, dest_sender);
-    let dest_fut = handle_from_dest(client_sender, dest_receiver);
+    let dest_fut = handle_from_server(client_sender, dest_receiver);
 
     // whichever future completes first, abort the other one since they're a pair
     select! {
@@ -83,7 +85,7 @@ async fn handle_from_client(
     }
 }
 
-async fn handle_from_dest(
+async fn handle_from_server(
     mut client_sender: SplitSink<WebSocket, AMessage>,
     mut dest_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 ) {

@@ -1,6 +1,6 @@
 use std::{env, fs};
 
-use anyhow::anyhow;
+use color_eyre::{eyre::eyre, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -26,9 +26,9 @@ pub struct Addresses {
     //- eg: /ws
     pub websocket_path: Option<String>,
     // must be PEM format
-    pub ssl_cert: String,
+    pub ssl_cert: Option<String>,
     // must be PEM format
-    pub ssl_key: String,
+    pub ssl_key: Option<String>,
     // path to the health check on the backend
     // e.g. /api/health
     pub health_check: Option<String>,
@@ -39,20 +39,22 @@ pub struct Options {
     // If your service has legacy http urls, you can turn on this to allow compatibility
     // Sets the header: `Content-Security-Policy: upgrade-insecure-requests`
     pub http_support: bool,
+    // Whether ssl is enabled
+    pub ssl: bool,
 }
 
 impl Config {
-    pub fn get_config() -> anyhow::Result<Self> {
+    pub fn get_config() -> Result<Self> {
         let exe_path = env::current_exe()?;
         let parent_dir = exe_path
             .parent()
-            .ok_or_else(|| anyhow!("Failed to find parent dir"))?;
+            .ok_or_else(|| eyre!("Failed to find parent dir"))?;
 
         let config_path = parent_dir.join("config.toml");
 
         if !config_path.exists() {
             fs::write(config_path, toml::to_string(&Self::default())?)?;
-            return Err(anyhow!("Please setup config.toml"));
+            return Err(eyre!("Please setup config.toml"));
         }
 
         let config = fs::read_to_string(config_path)?;
