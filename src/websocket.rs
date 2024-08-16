@@ -15,7 +15,7 @@ use futures::{
 use serde::Deserialize;
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tracing::info;
+use tracing::{error, info};
 use tungstenite::Message as TMessage;
 
 use crate::StateData;
@@ -37,13 +37,21 @@ pub async fn handler(
 async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryString) {
     let (mut client_sender, client_receiver) = socket.split();
 
-    let mut url = state.websocket_destination.as_ref().unwrap().to_owned();
+    let Some(mut url) = state.websocket_destination.clone() else {
+        error!("missing destination");
+        return;
+    };
+
     // originally this would fail past an await point, but the temporary borrow drops for us and solves that.. Nice!
     url.query_pairs_mut().extend_pairs(query.items).finish();
+
+    info!(%url, "connecting to");
 
     let dest_socket = {
         let Ok((dest, _)) = connect_async(url.as_str()).await else {
             // failed to connect to destination, so the client connection isn't needed
+
+            error!("failed to connect");
 
             let frame = CloseFrame {
                 // Bad Gateway
