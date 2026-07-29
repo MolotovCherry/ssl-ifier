@@ -1,8 +1,8 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::{
-        ws::{CloseFrame, Message as AMessage, WebSocket},
+        ws::{CloseFrame, Message as AMessage, Utf8Bytes as AUtf8Bytes, WebSocket},
         Query, WebSocketUpgrade,
     },
     response::IntoResponse,
@@ -64,7 +64,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<StateData>, query: QueryStr
             let frame = CloseFrame {
                 // Bad Gateway
                 code: 1014,
-                reason: Cow::Borrowed("Failed to open connection to destination server"),
+                reason: AUtf8Bytes::from_static("Failed to open connection to destination server"),
             };
 
             _ = client_sender.send(AMessage::Close(Some(frame))).await;
@@ -125,7 +125,7 @@ fn into_tmessage(msg: AMessage) -> TMessage {
     use tungstenite::protocol::{frame::coding::CloseCode, CloseFrame};
 
     match msg {
-        AMessage::Text(t) => TMessage::Text(t),
+        AMessage::Text(t) => TMessage::Text(t.as_str().into()),
         AMessage::Binary(b) => TMessage::Binary(b),
         AMessage::Ping(p) => TMessage::Ping(p),
         AMessage::Pong(p) => TMessage::Pong(p),
@@ -133,7 +133,7 @@ fn into_tmessage(msg: AMessage) -> TMessage {
             Some(frame) => {
                 let frame = CloseFrame {
                     code: CloseCode::from(frame.code),
-                    reason: frame.reason,
+                    reason: frame.reason.as_str().into(),
                 };
 
                 TMessage::Close(Some(frame))
@@ -148,7 +148,7 @@ fn into_amessage(msg: TMessage) -> Option<AMessage> {
     use axum::extract::ws::CloseCode;
 
     let msg = match msg {
-        TMessage::Text(t) => AMessage::Text(t),
+        TMessage::Text(t) => AMessage::Text(t.as_str().into()),
         TMessage::Binary(b) => AMessage::Binary(b),
         TMessage::Ping(p) => AMessage::Ping(p),
         TMessage::Pong(p) => AMessage::Pong(p),
@@ -156,7 +156,7 @@ fn into_amessage(msg: TMessage) -> Option<AMessage> {
             Some(frame) => {
                 let frame = CloseFrame {
                     code: CloseCode::from(frame.code),
-                    reason: frame.reason,
+                    reason: frame.reason.as_str().into(),
                 };
 
                 AMessage::Close(Some(frame))

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::Host,
     handler::HandlerWithoutStateExt as _,
     http::{
         uri::{self, Authority, InvalidUri, InvalidUriParts},
@@ -9,7 +8,8 @@ use axum::{
     },
     response::{IntoResponse as _, Redirect},
 };
-use color_eyre::{owo_colors::OwoColorize, Result};
+use axum_extra::{headers::Host, TypedHeader};
+use color_eyre::Result;
 use reqwest::{Method, StatusCode};
 use tracing::info;
 
@@ -30,14 +30,21 @@ pub enum RedirectError {
 }
 
 pub async fn redirect_http(data: Arc<StateData>) -> Result<()> {
-    let http_port = resolver::get_port(data.config.addresses.proxy_http.as_ref().unwrap())
-        .unwrap_or("80")
-        .to_string();
+    let http_port = resolver::get_port(
+        data.config
+            .addresses
+            .proxy_http
+            .as_deref()
+            .unwrap_or_default(),
+    )
+    .unwrap_or("80")
+    .to_string();
+
     let https_port = resolver::get_port(&data.config.addresses.proxy)
         .unwrap_or("443")
         .to_string();
 
-    let make_https = move |host: String, uri: Uri| -> Result<Uri> {
+    let make_https = move |host: &str, uri: Uri| -> Result<Uri> {
         let mut parts = uri.into_parts();
 
         parts.scheme = Some(uri::Scheme::HTTPS);
@@ -54,11 +61,10 @@ pub async fn redirect_http(data: Arc<StateData>) -> Result<()> {
         Ok(Uri::from_parts(parts)?)
     };
 
-    let redirect = move |method: Method, Host(host): Host, uri: Uri| async move {
+    let redirect = move |method: Method, TypedHeader(host): TypedHeader<Host>, uri: Uri| async move {
         let path = format_req(&method, &uri);
-        let path = path.cyan();
 
-        match make_https(host, uri) {
+        match make_https(host.hostname(), uri) {
             Ok(uri) => {
                 info!("{path} 308 Permanent Redirect");
                 Redirect::permanent(&uri.to_string()).into_response()

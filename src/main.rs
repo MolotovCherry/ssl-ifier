@@ -64,7 +64,7 @@ fn setup() -> Result<()> {
         .map_err(|_| AppError::CryptoInstallFailure)?;
 
     tracing_subscriber::registry()
-        .with(fmt::layer().without_time())
+        .with(fmt::layer().without_time().with_ansi_sanitization(false))
         .with(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::INFO.into())
@@ -163,7 +163,7 @@ async fn main() -> Result<()> {
 
     // everything else goes to the service
     router = router
-        .route("/*path", any_service(service))
+        .route("/{*path}", any_service(service))
         .layer(Extension(data.clone()));
 
     if let Some(ssl_config) = ssl_config {

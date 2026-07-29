@@ -5,37 +5,38 @@ edition = "2021"
 
 [dependencies]
 # futures stuff
-tokio = { version = "1.40.0", features = ["full"] }
-futures = "0.3.31"
+tokio = { version = "1.53.1", features = ["full"] }
+futures = "0.3.33"
 # server
-axum = { version = "0.7.7", features = ["ws"] }
-axum-server = { version = "0.7.1", features = ["tls-rustls"] }
-tower = { version = "0.5.1", features = ["util"] }
-tower-http = { version = "0.6.1", features = ["add-extension"] }
+axum = { version = "0.8.9", features = ["ws"] }
+axum-extra = { version = "0.12.6", features = ["typed-header"] }
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.0", features = ["add-extension"] }
 # tls
-rustls = "0.23.14"
+rustls = "0.23.42"
 rustls-pemfile = "2.2.0"
 # websockets
-tungstenite = "0.24.0"
-tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
+tungstenite = "0.30.0"
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 # misc
-color-eyre = "0.6.3"
-thiserror = "1.0.64"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-derive_more = { version = "1.0.0", features = ["display"] }
-serde = { version = "1.0.210", features = ["derive"] }
-toml = "0.8.19"
-owo-colors = "4.1.0"
-reqwest = { version = "0.12.8", features = [
+color-eyre = "0.6.5"
+thiserror = "2.0.19"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+derive_more = { version = "2.1.1", features = ["display"] }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.4"
+owo-colors = "4.3.0"
+reqwest = { version = "0.13.4", features = [
     "stream",
     "deflate",
     "brotli",
     "gzip",
     "zstd",
 ] }
-const_format = { version = "0.2.33", features = ["rust_1_51"] }
-url = "2.5.2"
+const_format = { version = "0.2.36", features = ["rust_1_83"] }
+url = "2.5.8"
 
 [profile.release-with-debug]
 inherits = "release"

@@ -22,7 +22,7 @@ pub struct Addresses {
 /// Convert a address like `localhost:1234`, or `localhost`,
 /// to an socket address with port, like `127.0.0.1:1234` or `127.0.0.1`
 /// returns both ipv4 and ipv6 (if there is one)
-pub fn get_addresses(addr: &str) -> Result<Addresses> {
+pub fn get_addresses(addr: &str) -> Result<Addresses, AddressError> {
     let mut addresses = Addresses::default();
 
     let a = addr.to_socket_addrs()?;
