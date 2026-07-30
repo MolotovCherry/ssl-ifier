@@ -3,15 +3,20 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 
-use axum::{body::Body, extract::Request, response::Response};
+use axum::{
+    body::Body,
+    extract::{Request, State},
+    response::Response,
+};
 use reqwest::{Body as ReqwestBody, StatusCode};
 use tracing::info;
 
 use crate::{error_pages::error_page, utils::format_req, StateData};
 
-pub async fn proxy(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let data = req.extensions().get::<Arc<StateData>>().unwrap().clone();
-
+pub async fn proxy(
+    State(data): State<Arc<StateData>>,
+    req: Request<Body>,
+) -> Result<Response<Body>, Infallible> {
     let health = data.health.load(Ordering::Acquire);
     if !health {
         let page = error_page(
@@ -56,14 +61,11 @@ pub async fn proxy(req: Request<Body>) -> Result<Response<Body>, Infallible> {
 
     info!("{} {}", format_req(&method, &parts.uri), reqwest.status());
 
-    let mut response = Response::builder();
+    let mut response =
+        Response::builder().header("Content-Security-Policy", "upgrade-insecure-requests");
 
     if let Some(map) = response.headers_mut() {
         *map = reqwest.headers().clone();
-    }
-
-    if data.config.options.http_support {
-        response = response.header("Content-Security-Policy", "upgrade-insecure-requests");
     }
 
     let response = response

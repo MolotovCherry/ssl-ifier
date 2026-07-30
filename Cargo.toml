@@ -8,14 +8,11 @@ edition = "2021"
 tokio = { version = "1.53.1", features = ["full"] }
 futures = "0.3.33"
 # server
-axum = { version = "0.8.9", features = ["ws", "macros"] }
+axum = { version = "0.8.9", features = ["ws", "macros", "tokio"] }
 axum-extra = { version = "0.12.6", features = ["typed-header"] }
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
-tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.0", features = ["add-extension"] }
 # tls
 rustls = "0.23.42"
-rustls-pemfile = "2.2.0"
 # websockets
 tungstenite = "0.30.0"
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }

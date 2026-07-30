@@ -3,10 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{
     extract::{
         ws::{CloseFrame, Message as AMessage, Utf8Bytes as AUtf8Bytes, WebSocket},
-        Query, WebSocketUpgrade,
+        Query, State, WebSocketUpgrade,
     },
     response::IntoResponse,
-    Extension,
 };
 use derive_more::derive::Display;
 use futures::{
@@ -31,7 +30,7 @@ pub struct QueryString {
 pub async fn handler(
     ws: WebSocketUpgrade,
     Query(query): Query<QueryString>,
-    Extension(state): Extension<Arc<StateData>>,
+    State(state): State<Arc<StateData>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, state, query))
 }

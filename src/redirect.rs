@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use axum::{
     handler::HandlerWithoutStateExt as _,
     http::{
-        uri::{self, Authority, InvalidUri, InvalidUriParts},
+        uri::{self, Authority, InvalidUri},
         Uri,
     },
     response::{IntoResponse as _, Redirect},
@@ -13,37 +11,9 @@ use color_eyre::Result;
 use reqwest::{Method, StatusCode};
 use tracing::info;
 
-use crate::{error_pages::error_page, resolver, utils::format_req, StateData};
+use crate::{config::ProxyAddr, error_pages::error_page, utils::format_req};
 
-#[derive(Debug, thiserror::Error)]
-pub enum RedirectError {
-    #[error("ipv4 address not found")]
-    Ipv4NotFound,
-    #[error("{0}")]
-    Io(#[from] std::io::Error),
-    #[error("{0}")]
-    InvalidUriParts(#[from] InvalidUriParts),
-    #[error("{0}")]
-    InvalidUri(#[from] InvalidUri),
-    #[error("address proxy_http config section needs to be configured")]
-    MissingProxyHttp,
-}
-
-pub async fn redirect_http(data: Arc<StateData>) -> Result<()> {
-    let http_port = resolver::get_port(
-        data.config
-            .addresses
-            .proxy_http
-            .as_deref()
-            .unwrap_or_default(),
-    )
-    .unwrap_or("80")
-    .to_string();
-
-    let https_port = resolver::get_port(&data.config.addresses.proxy)
-        .unwrap_or("443")
-        .to_string();
-
+pub async fn redirect_http(addr: ProxyAddr) -> Result<()> {
     let make_https = move |host: &str, uri: Uri| -> Result<Uri> {
         let mut parts = uri.into_parts();
 
@@ -53,7 +23,7 @@ pub async fn redirect_http(data: Arc<StateData>) -> Result<()> {
             parts.path_and_query = Some("/".parse().unwrap());
         }
 
-        let https_host = host.replace(&http_port, &https_port);
+        let https_host = host.replace(&addr.http_port.to_string(), &addr.ssl_port.to_string());
         let authority: std::result::Result<Authority, InvalidUri> = https_host.parse::<Authority>();
         let authority = authority?;
         parts.authority = Some(authority);
@@ -77,17 +47,7 @@ pub async fn redirect_http(data: Arc<StateData>) -> Result<()> {
         }
     };
 
-    let http_proxy = resolver::get_addresses(
-        data.config
-            .addresses
-            .proxy_http
-            .as_ref()
-            .ok_or(RedirectError::MissingProxyHttp)?,
-    )?;
-
-    let http_proxy = http_proxy.ipv4.ok_or(RedirectError::Ipv4NotFound)?;
-
-    axum_server::bind(http_proxy)
+    axum_server::bind(addr.http_addr())
         .serve(redirect.into_make_service())
         .await?;
 

@@ -1,4 +1,7 @@
-use std::{env, fs};
+use std::{
+    env, fs,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+};
 
 use color_eyre::{eyre::eyre, Result};
 use serde::{Deserialize, Serialize};
@@ -15,21 +18,18 @@ pub struct Addresses {
     // Backend host. In the following format
     //- eg: 127.0.0.1:8081, myaddr.com:8081
     pub backend: String,
-    // Proxy address to listen on (and port)
-    //- eg: 127.0.0.1:443, myaddr.com:443
-    pub proxy: String,
-    // Proxy address to listen on (and port) for http
+    // Proxy address to listen on (and ports)
     // This DOES NOT serve content over http (use your regular service for that if you want that)
     // The purpose of this is to provide a permanent redirect to the https service
-    //- eg: 127.0.0.1:80, myaddr.com:80
-    pub proxy_http: Option<String>,
+    //- eg: 127.0.0.1:80:443, myaddr.com:80:443
+    pub proxy: String,
     // Whether to enable websocket proxying to backend, and if so, what path to use
     //- eg: /ws
     pub websocket_path: Option<String>,
     // must be PEM format
-    pub ssl_cert: Option<String>,
+    pub ssl_cert: String,
     // must be PEM format
-    pub ssl_key: Option<String>,
+    pub ssl_key: String,
     // path to the health check on the backend
     // e.g. /api/health
     pub health_check: Option<String>,
@@ -37,11 +37,6 @@ pub struct Addresses {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Options {
-    // If your service has legacy http urls, you can turn on this to allow compatibility
-    // Sets the header: `Content-Security-Policy: upgrade-insecure-requests`
-    pub http_support: bool,
-    // Whether ssl is enabled
-    pub ssl: bool,
     // enable kavita support
     #[serde(default)]
     pub kavita: bool,
@@ -64,5 +59,40 @@ impl Config {
         let config = fs::read_to_string(config_path)?;
 
         Ok(toml::from_str::<Self>(&config)?)
+    }
+
+    pub fn proxy_addr(&self) -> Result<ProxyAddr> {
+        let mut iter = self.addresses.proxy.split(":");
+
+        let addr = iter.next().unwrap_or("0.0.0.0").parse::<Ipv4Addr>()?;
+        let http_port = iter.next().unwrap_or("80").parse::<u16>()?;
+        let ssl_port = iter.next().unwrap_or("443").parse::<u16>()?;
+
+        let addr = ProxyAddr {
+            addr,
+            ssl_port,
+            http_port,
+        };
+
+        Ok(addr)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ProxyAddr {
+    pub addr: Ipv4Addr,
+    pub ssl_port: u16,
+    pub http_port: u16,
+}
+
+impl ProxyAddr {
+    pub fn ssl_addr(&self) -> SocketAddr {
+        let v4 = SocketAddrV4::new(self.addr, self.ssl_port);
+        SocketAddr::V4(v4)
+    }
+
+    pub fn http_addr(&self) -> SocketAddr {
+        let v4 = SocketAddrV4::new(self.addr, self.http_port);
+        SocketAddr::V4(v4)
     }
 }

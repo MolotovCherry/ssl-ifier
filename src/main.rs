@@ -4,7 +4,6 @@ mod health;
 mod middleware;
 mod proxy;
 mod redirect;
-mod resolver;
 mod utils;
 mod websocket;
 
@@ -14,24 +13,18 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use axum::{
-    middleware as amiddleware,
-    routing::{any, get},
-    Extension, Router,
-};
+use axum::{middleware as amiddleware, routing::get, Router};
 use axum_server::tls_rustls::RustlsConfig;
-use color_eyre::{eyre::bail, Result};
+use color_eyre::Result;
 use reqwest::Client;
 use thiserror::Error;
 use tokio::task;
 use tracing::{error, info, level_filters::LevelFilter};
-use tracing_subscriber::{
-    fmt, prelude::__tracing_subscriber_SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter,
-};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
 use self::{health::health_check, redirect::redirect_http};
-use crate::config::Config;
+use crate::config::{Config, ProxyAddr};
 
 #[derive(Debug)]
 pub struct StateData {
@@ -45,14 +38,10 @@ pub struct StateData {
 enum AppError {
     #[error("failed to install crypto handler")]
     CryptoInstallFailure,
-    #[error("ipv4 address not found")]
-    Ipv4NotFound,
     #[error("{0}")]
     Io(#[from] std::io::Error),
     #[error("failed to get parent")]
     NoParent,
-    #[error("ssl cert or key was not configured")]
-    SslMissing,
     #[error("could not parse: {0}")]
     ParseFailure(String),
     #[error("no current exe found")]
@@ -94,101 +83,69 @@ async fn main() -> Result<()> {
         health: AtomicBool::new(true),
     });
 
-    // make backend address
-    let backend_addr = resolver::get_addresses(&data.config.addresses.proxy)?;
-
-    let backend_addr = backend_addr.ipv4.ok_or(AppError::Ipv4NotFound)?;
+    let proxy_addr = data.config.proxy_addr()?;
 
     // get server config for rust
     let exe_path = env::current_exe().map_err(|_| AppError::NoCurrentExe)?;
     let exe_path = exe_path.parent().ok_or(AppError::NoParent)?;
 
-    let ssl_config = if data.config.options.ssl {
-        let (Some(cert), Some(key)) = (
-            &data.config.addresses.ssl_cert,
-            &data.config.addresses.ssl_key,
-        ) else {
-            bail!(AppError::SslMissing);
-        };
-
-        let ssl = RustlsConfig::from_pem_file(exe_path.join(cert), exe_path.join(key)).await?;
-
-        Some(ssl)
-    } else {
-        None
-    };
+    let ssl_config = RustlsConfig::from_pem_file(
+        exe_path.join(&data.config.addresses.ssl_cert),
+        exe_path.join(&data.config.addresses.ssl_key),
+    )
+    .await?;
 
     //
 
-    if data.config.addresses.proxy_http.is_none() {
-        info!(
-            "Listening on https://{} for service http://{}",
-            data.config.addresses.proxy, data.config.addresses.backend
-        );
-    } else if let Some(proxy_http) = &data.config.addresses.proxy_http {
-        info!(
-            "Listening on http://{proxy_http} and https://{} for service http://{}",
-            data.config.addresses.proxy, data.config.addresses.backend
-        );
-    }
+    info!(
+        "Listening on http://{proxy_addr}:{proxy_port} and https://{proxy_addr}:{ssl_port} for service http://{backend}",
+        backend = data.config.addresses.backend,
+        proxy_addr = proxy_addr.addr,
+        proxy_port = proxy_addr.http_port,
+        ssl_port = proxy_addr.ssl_port
+    );
 
     // run health checks against api to determine availability of service
     if data.config.addresses.health_check.is_some() {
         health_check(data.clone());
     }
 
-    let mut router = Router::new();
+    let router = make_route(proxy_addr, data.clone());
+
+    // serve http endpoint which redirects to https
+    task::spawn(async move {
+        if let Err(e) = redirect_http(proxy_addr).await {
+            error!("{e}");
+        }
+    });
+
+    // ssl
+    axum_server::bind_rustls(proxy_addr.ssl_addr(), ssl_config)
+        .serve(router.into_make_service_with_connect_info::<SocketAddr>())
+        .await?;
+
+    Ok(())
+}
+
+fn make_route(addr: ProxyAddr, data: Arc<StateData>) -> Router {
+    let mut router = Router::new().fallback(proxy::proxy);
 
     if let Some(path) = &data.config.addresses.websocket_path {
         info!(
-            "Listening for websocket connections on wss://{}{path}",
-            data.config.addresses.proxy
+            "Listening for websocket connections on wss://{proxy_addr}:{ssl_port}{path}",
+            proxy_addr = addr.addr,
+            ssl_port = addr.ssl_port
         );
 
         router = router.route(path, get(websocket::handler));
     }
 
-    // you cannot have two routes with the same path or panic, so we will let websocket override it
-    if !data
-        .config
-        .addresses
-        .websocket_path
-        .as_ref()
-        .is_some_and(|p| p == "/")
-    {
-        router = router.route("/", any(proxy::proxy));
-    }
-
-    // everything else goes to the service
-    router = router.route("/{*path}", any(proxy::proxy));
-
     if data.config.options.kavita {
-        router = router.layer(amiddleware::from_fn(middleware::kavita::kavita));
+        router = router.layer(amiddleware::from_fn_with_state(
+            data.clone(),
+            middleware::kavita,
+        ));
     }
 
-    router = router.layer(Extension(data.clone()));
-
-    if let Some(ssl_config) = ssl_config {
-        // whether to serve http endpoint which redirects to https
-        if data.config.addresses.proxy_http.is_some() {
-            let data = data.clone();
-            task::spawn(async move {
-                if let Err(e) = redirect_http(data).await {
-                    error!("{e}");
-                }
-            });
-        }
-
-        // ssl
-        axum_server::bind_rustls(backend_addr, ssl_config)
-            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
-            .await?;
-    } else {
-        // http
-        axum_server::bind(backend_addr)
-            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
-            .await?;
-    }
-
-    Ok(())
+    router.with_state(data)
 }

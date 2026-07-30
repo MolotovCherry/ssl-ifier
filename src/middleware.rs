@@ -1,1 +1,2 @@
-pub mod kavita;
+mod kavita;
+pub use kavita::kavita;

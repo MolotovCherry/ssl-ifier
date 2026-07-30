@@ -1,18 +1,17 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    extract::{ConnectInfo, Request},
+    extract::{ConnectInfo, Request, State},
     http::{header::HOST, HeaderValue},
     middleware::Next,
     response::Response,
-    Extension,
 };
 
 use crate::StateData;
 
 pub async fn kavita(
     conn: ConnectInfo<SocketAddr>,
-    Extension(data): Extension<Arc<StateData>>,
+    State(data): State<Arc<StateData>>,
     mut req: Request,
     next: Next,
 ) -> Response {
