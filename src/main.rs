@@ -1,6 +1,7 @@
 mod config;
 mod error_pages;
 mod health;
+mod middleware;
 mod proxy;
 mod redirect;
 mod resolver;
@@ -9,11 +10,13 @@ mod websocket;
 
 use std::{
     env,
+    net::SocketAddr,
     sync::{atomic::AtomicBool, Arc},
 };
 
 use axum::{
-    routing::{any_service, get},
+    middleware as amiddleware,
+    routing::{any, get},
     Extension, Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
@@ -21,8 +24,6 @@ use color_eyre::{eyre::bail, Result};
 use reqwest::Client;
 use thiserror::Error;
 use tokio::task;
-use tower::ServiceBuilder;
-use tower_http::add_extension::AddExtensionLayer;
 use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::{
     fmt, prelude::__tracing_subscriber_SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter,
@@ -136,9 +137,6 @@ async fn main() -> Result<()> {
         health_check(data.clone());
     }
 
-    let service = ServiceBuilder::new()
-        .layer(AddExtensionLayer::new(data.clone()))
-        .service(tower::service_fn(proxy::proxy));
     let mut router = Router::new();
 
     if let Some(path) = &data.config.addresses.websocket_path {
@@ -158,13 +156,17 @@ async fn main() -> Result<()> {
         .as_ref()
         .is_some_and(|p| p == "/")
     {
-        router = router.route("/", any_service(service.clone()));
+        router = router.route("/", any(proxy::proxy));
     }
 
     // everything else goes to the service
-    router = router
-        .route("/{*path}", any_service(service))
-        .layer(Extension(data.clone()));
+    router = router.route("/{*path}", any(proxy::proxy));
+
+    if data.config.options.kavita {
+        router = router.layer(amiddleware::from_fn(middleware::kavita::kavita));
+    }
+
+    router = router.layer(Extension(data.clone()));
 
     if let Some(ssl_config) = ssl_config {
         // whether to serve http endpoint which redirects to https
@@ -179,12 +181,12 @@ async fn main() -> Result<()> {
 
         // ssl
         axum_server::bind_rustls(backend_addr, ssl_config)
-            .serve(router.into_make_service())
+            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await?;
     } else {
         // http
         axum_server::bind(backend_addr)
-            .serve(router.into_make_service())
+            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await?;
     }
 

@@ -8,7 +8,7 @@ edition = "2021"
 tokio = { version = "1.53.1", features = ["full"] }
 futures = "0.3.33"
 # server
-axum = { version = "0.8.9", features = ["ws"] }
+axum = { version = "0.8.9", features = ["ws", "macros"] }
 axum-extra = { version = "0.12.6", features = ["typed-header"] }
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
 tower = { version = "0.5.3", features = ["util"] }

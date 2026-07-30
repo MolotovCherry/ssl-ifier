@@ -11,6 +11,7 @@ pub struct Config {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Addresses {
+    pub host: String,
     // Backend host. In the following format
     //- eg: 127.0.0.1:8081, myaddr.com:8081
     pub backend: String,
@@ -41,6 +42,9 @@ pub struct Options {
     pub http_support: bool,
     // Whether ssl is enabled
     pub ssl: bool,
+    // enable kavita support
+    #[serde(default)]
+    pub kavita: bool,
 }
 
 impl Config {
