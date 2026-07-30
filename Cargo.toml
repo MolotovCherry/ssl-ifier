@@ -1,7 +1,7 @@
 [package]
 name = "ssl-ifier"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 # futures stuff
@@ -17,23 +17,16 @@ rustls = "0.23.42"
 tungstenite = "0.30.0"
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 # misc
-color-eyre = "0.6.5"
-thiserror = "2.0.19"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 derive_more = { version = "2.1.1", features = ["display"] }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.4"
 owo-colors = "4.3.0"
-reqwest = { version = "0.13.4", features = [
-    "stream",
-    "deflate",
-    "brotli",
-    "gzip",
-    "zstd",
-] }
 const_format = { version = "0.2.36", features = ["rust_1_83"] }
-url = "2.5.8"
+url = { version = "2.5.8", features = ["serde"] }
+hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "tokio"] }
+snafu = "0.9.2"
 
 [profile.release-with-debug]
 inherits = "release"

@@ -1,35 +1,19 @@
-use std::{
-    convert::Infallible,
-    sync::{atomic::Ordering, Arc},
-};
+use std::{convert::Infallible, sync::Arc};
 
 use axum::{
     body::Body,
     extract::{Request, State},
+    http::StatusCode,
     response::Response,
 };
-use reqwest::{Body as ReqwestBody, StatusCode};
 use tracing::info;
 
-use crate::{error_pages::error_page, utils::format_req, StateData};
+use crate::{StateData, error_pages::error_page, utils::format_req};
 
 pub async fn proxy(
-    State(data): State<Arc<StateData>>,
+    State(state): State<Arc<StateData>>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
-    let health = data.health.load(Ordering::Acquire);
-    if !health {
-        let page = error_page(
-            StatusCode::BAD_GATEWAY,
-            format!(
-                "Health check failed for {}, service is down",
-                data.config.addresses.backend
-            ),
-        );
-
-        return Ok(page);
-    }
-
     let (parts, body) = req.into_parts();
 
     let path = parts
@@ -37,46 +21,25 @@ pub async fn proxy(
         .path_and_query()
         .map(|i| i.as_str())
         .unwrap_or("/");
-    let method = parts.method;
-    let headers = parts.headers;
 
-    let url = format!("http://{}{path}", data.config.addresses.backend);
-
-    let stream = body.into_data_stream();
-    let req_body = ReqwestBody::wrap_stream(stream);
-
-    let reqwest = match data
-        .client
-        .request(method.clone(), url)
-        .headers(headers)
-        .body(req_body)
-        .send()
-        .await
-    {
-        Ok(res) => res,
-        Err(e) => {
-            return Ok(error_page(StatusCode::BAD_GATEWAY, e));
-        }
-    };
-
-    info!("{} {}", format_req(&method, &parts.uri), reqwest.status());
-
-    let mut response =
-        Response::builder().header("Content-Security-Policy", "upgrade-insecure-requests");
-
-    if let Some(map) = response.headers_mut() {
-        *map = reqwest.headers().clone();
+    let uri = format!("http://{}{path}", state.config.addresses.backend);
+    let mut builder = Request::builder().method(&parts.method).uri(uri);
+    if let Some(hm) = builder.headers_mut() {
+        *hm = parts.headers;
     }
 
-    let response = response
-        .status(reqwest.status())
-        .body(Body::from_stream(reqwest.bytes_stream()))
-        .unwrap_or_else(|_| {
-            error_page(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to get reqwest byte stream",
-            )
-        });
+    let request = match builder.body(body) {
+        Ok(r) => r,
+        Err(e) => return Ok(error_page(StatusCode::INTERNAL_SERVER_ERROR, e)),
+    };
 
-    Ok(response)
+    match state.client.request(request).await {
+        Ok(res) => {
+            info!("{} {}", format_req(&parts.method, &parts.uri), res.status());
+            let res = res.map(Body::new);
+            Ok(res)
+        }
+
+        Err(err) => Ok(error_page(StatusCode::BAD_GATEWAY, err)),
+    }
 }

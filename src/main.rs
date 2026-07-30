@@ -1,54 +1,59 @@
 mod config;
 mod error_pages;
-mod health;
 mod middleware;
 mod proxy;
 mod redirect;
 mod utils;
 mod websocket;
 
-use std::{
-    env,
-    net::SocketAddr,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{env, net::SocketAddr, sync::Arc};
 
-use axum::{middleware as amiddleware, routing::get, Router};
+use axum::{Router, body::Body, middleware as amiddleware, routing::get};
 use axum_server::tls_rustls::RustlsConfig;
-use color_eyre::Result;
-use reqwest::Client;
-use thiserror::Error;
+use hyper_util::{
+    client::legacy::{Client, connect::HttpConnector},
+    rt::TokioExecutor,
+};
+use snafu::{OptionExt, ResultExt, Snafu};
 use tokio::task;
 use tracing::{error, info, level_filters::LevelFilter};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use url::Url;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use url::{ParseError, Url};
 
-use self::{health::health_check, redirect::redirect_http};
-use crate::config::{Config, ProxyAddr};
+use crate::config::{Config, ConfigError, ProxyAddr};
+use redirect::redirect_http;
 
 #[derive(Debug)]
 pub struct StateData {
-    client: Client,
+    client: Client<HttpConnector, Body>,
     config: Config,
-    health: AtomicBool,
     websocket_destination: Option<Url>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Snafu, Debug)]
 enum AppError {
-    #[error("failed to install crypto handler")]
+    #[snafu(display("failed to install crypto handler"))]
     CryptoInstallFailure,
-    #[error("{0}")]
-    Io(#[from] std::io::Error),
-    #[error("failed to get parent")]
+    #[snafu(display("{source}"))]
+    Io { source: std::io::Error },
+    #[snafu(display("failed to get parent"))]
     NoParent,
-    #[error("could not parse: {0}")]
-    ParseFailure(String),
-    #[error("no current exe found")]
+    #[snafu(display("could not parse: {source}"))]
+    ParseFailure { source: ParseError },
+    #[snafu(display("no current exe found"))]
     NoCurrentExe,
+    #[snafu(display("{source}"))]
+    Config { source: ConfigError },
+
+    #[snafu(whatever, display("{message}"))]
+    Whatever {
+        message: String,
+        #[snafu(source(from(Box<dyn std::error::Error>, Some)))]
+        source: Option<Box<dyn std::error::Error>>,
+    },
 }
 
-fn setup() -> Result<()> {
+fn setup() -> Result<(), AppError> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .map_err(|_| AppError::CryptoInstallFailure)?;
@@ -67,33 +72,35 @@ fn setup() -> Result<()> {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), AppError> {
     setup()?;
 
-    let config = config::Config::get_config()?;
+    let client = Client::builder(TokioExecutor::new()).build_http();
+
+    let config = config::Config::get_config().context(ConfigSnafu)?;
     let data = Arc::new(StateData {
-        client: Client::builder().build().unwrap(),
+        client,
         websocket_destination: if let Some(path) = &config.addresses.websocket_path {
             let addr = format!("ws://{}{path}", config.addresses.backend);
-            Some(Url::parse(&addr).map_err(|_| AppError::ParseFailure(addr))?)
+            Some(Url::parse(&addr).context(ParseFailureSnafu)?)
         } else {
             None
         },
         config,
-        health: AtomicBool::new(true),
     });
 
-    let proxy_addr = data.config.proxy_addr()?;
+    let proxy_addr = data.config.proxy_addr().context(ConfigSnafu)?;
 
     // get server config for rust
     let exe_path = env::current_exe().map_err(|_| AppError::NoCurrentExe)?;
-    let exe_path = exe_path.parent().ok_or(AppError::NoParent)?;
+    let exe_path = exe_path.parent().context(NoParentSnafu)?;
 
     let ssl_config = RustlsConfig::from_pem_file(
         exe_path.join(&data.config.addresses.ssl_cert),
         exe_path.join(&data.config.addresses.ssl_key),
     )
-    .await?;
+    .await
+    .context(IoSnafu)?;
 
     //
 
@@ -104,11 +111,6 @@ async fn main() -> Result<()> {
         proxy_port = proxy_addr.http_port,
         ssl_port = proxy_addr.ssl_port
     );
-
-    // run health checks against api to determine availability of service
-    if data.config.addresses.health_check.is_some() {
-        health_check(data.clone());
-    }
 
     let router = make_route(proxy_addr, data.clone());
 
@@ -122,7 +124,8 @@ async fn main() -> Result<()> {
     // ssl
     axum_server::bind_rustls(proxy_addr.ssl_addr(), ssl_config)
         .serve(router.into_make_service_with_connect_info::<SocketAddr>())
-        .await?;
+        .await
+        .context(IoSnafu)?;
 
     Ok(())
 }

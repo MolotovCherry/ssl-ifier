@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{ConnectInfo, Request, State},
-    http::{header::HOST, HeaderValue},
+    http::{HeaderValue, header::HOST},
     middleware::Next,
     response::Response,
 };
@@ -61,7 +61,5 @@ pub async fn kavita(
     // Request
     //
 
-    let response = next.run(req).await;
-
-    response
+    next.run(req).await
 }

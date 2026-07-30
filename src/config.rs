@@ -1,18 +1,39 @@
 use std::{
-    env, fs,
+    env, fs, io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
-use color_eyre::{eyre::eyre, Result};
 use serde::{Deserialize, Serialize};
+use snafu::{OptionExt, ResultExt, Snafu, whatever};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Snafu)]
+pub enum ConfigError {
+    #[snafu(display("Exe path not found"))]
+    ExePathNotFound { source: io::Error },
+    #[snafu(display("Exe path's parent dir not found"))]
+    ParentDirNotFound,
+    #[snafu(display("toml serialize error: {source}"))]
+    TomlSer { source: toml::ser::Error },
+    #[snafu(display("toml deserialize error: {source}"))]
+    TomlDe { source: toml::de::Error },
+    #[snafu(display("io error: {source}"))]
+    Io { source: io::Error },
+
+    #[snafu(whatever, display("{message}"))]
+    Whatever {
+        message: String,
+        #[snafu(source(from(Box<dyn std::error::Error>, Some)))]
+        source: Option<Box<dyn std::error::Error>>,
+    },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     pub addresses: Addresses,
     pub options: Options,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Addresses {
     pub host: String,
     // Backend host. In the following format
@@ -30,12 +51,9 @@ pub struct Addresses {
     pub ssl_cert: String,
     // must be PEM format
     pub ssl_key: String,
-    // path to the health check on the backend
-    // e.g. /api/health
-    pub health_check: Option<String>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
 pub struct Options {
     // enable kavita support
     #[serde(default)]
@@ -43,30 +61,47 @@ pub struct Options {
 }
 
 impl Config {
-    pub fn get_config() -> Result<Self> {
-        let exe_path = env::current_exe()?;
-        let parent_dir = exe_path
-            .parent()
-            .ok_or_else(|| eyre!("Failed to find parent dir"))?;
+    pub fn get_config() -> Result<Self, ConfigError> {
+        let exe_path = env::current_exe().context(ExePathNotFoundSnafu)?;
+        let parent_dir = exe_path.parent().context(ParentDirNotFoundSnafu)?;
 
         let config_path = parent_dir.join("config.toml");
 
         if !config_path.exists() {
-            fs::write(config_path, toml::to_string(&Self::default())?)?;
-            return Err(eyre!("Please setup config.toml"));
+            fs::write(
+                config_path,
+                toml::to_string(&Self::default()).context(TomlSerSnafu)?,
+            )
+            .context(IoSnafu)?;
+
+            whatever!("Please setup config.toml");
         }
 
-        let config = fs::read_to_string(config_path)?;
+        let config = fs::read_to_string(config_path).whatever_context("")?;
 
-        Ok(toml::from_str::<Self>(&config)?)
+        toml::from_str::<Self>(&config).context(TomlDeSnafu)
     }
 
-    pub fn proxy_addr(&self) -> Result<ProxyAddr> {
+    pub fn proxy_addr(&self) -> Result<ProxyAddr, ConfigError> {
         let mut iter = self.addresses.proxy.split(":");
 
-        let addr = iter.next().unwrap_or("0.0.0.0").parse::<Ipv4Addr>()?;
-        let http_port = iter.next().unwrap_or("80").parse::<u16>()?;
-        let ssl_port = iter.next().unwrap_or("443").parse::<u16>()?;
+        let addr = iter
+            .next()
+            .unwrap_or("0.0.0.0")
+            .parse::<Ipv4Addr>()
+            .whatever_context("failed to pase proxy addr")?;
+
+        let http_port = iter
+            .next()
+            .unwrap_or("80")
+            .parse::<u16>()
+            .whatever_context("failed to pase proxy http port")?;
+
+        let ssl_port = iter
+            .next()
+            .unwrap_or("443")
+            .parse::<u16>()
+            .whatever_context("failed to pase proxy ssl port")?;
 
         let addr = ProxyAddr {
             addr,
